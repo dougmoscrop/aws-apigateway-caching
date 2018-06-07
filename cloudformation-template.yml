@@ -1,0 +1,220 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: An example of API Gateway caching confusion
+Resources:
+  TestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/aws/lambda/aws-apig-cache-dev-test"
+  IamRoleLambdaExecution:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Join:
+          - "-"
+          - - dev
+            - aws-apig-cache
+            - lambda
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogStream
+            Resource:
+            - Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/aws-apig-cache-dev-test:*
+          - Effect: Allow
+            Action:
+            - logs:PutLogEvents
+            Resource:
+            - Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/aws-apig-cache-dev-test:*:*
+      Path: "/"
+      RoleName:
+        Fn::Join:
+        - "-"
+        - - aws-apig-cache
+          - dev
+          - us-east-1
+          - lambdaRole
+  TestLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile:
+          Fn::Join:
+            - ' '
+            - - "'use strict';"
+              - "module.exports.handler = (event, context, callback) => callback(null, { statusCode: 200, body: new Date().toString() });"
+      FunctionName: aws-apig-cache-dev-test
+      Handler: index.handler
+      MemorySize: 1024
+      Role:
+        Fn::GetAtt:
+        - IamRoleLambdaExecution
+        - Arn
+      Runtime: nodejs6.10
+      Timeout: 6
+    DependsOn:
+      - TestLogGroup
+      - IamRoleLambdaExecution
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: dev-aws-apig-cache
+      EndpointConfiguration:
+        Types:
+        - EDGE
+  ApiGatewayMethodAny:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: ANY
+      RequestParameters: {}
+      ResourceId:
+        Fn::GetAtt:
+        - ApiGatewayRestApi
+        - RootResourceId
+      RestApiId:
+        Ref: ApiGatewayRestApi
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+          - ''
+          - - 'arn:'
+            - Ref: AWS::Partition
+            - ":apigateway:"
+            - Ref: AWS::Region
+            - ":lambda:path/2015-03-31/functions/"
+            - Fn::GetAtt:
+              - TestLambdaFunction
+              - Arn
+            - "/invocations"
+      MethodResponses: []
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId:
+        Ref: ApiGatewayRestApi
+    DependsOn:
+      - ApiGatewayMethodAny
+  TestLambdaPermissionApiGateway:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - TestLambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal:
+        Fn::Join:
+        - ''
+        - - apigateway.
+          - Ref: AWS::URLSuffix
+      SourceArn:
+        Fn::Join:
+        - ''
+        - - 'arn:'
+          - Ref: AWS::Partition
+          - ":execute-api:"
+          - Ref: AWS::Region
+          - ":"
+          - Ref: AWS::AccountId
+          - ":"
+          - Ref: ApiGatewayRestApi
+          - "/*/*"
+  IamRoleApiGatewayCloudwatchLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Join:
+          - "-"
+          - - dev
+            - aws-apig-cache
+            - apiGatewayLogs
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            - logs:GetLogEvents
+            - logs:FilterLogEvents
+            Resource: "*"
+      Path: "/"
+      RoleName:
+        Fn::Join:
+        - "-"
+        - - aws-apig-cache
+          - dev
+          - us-east-1
+          - apiGatewayLogRole
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn:
+        Fn::GetAtt:
+        - IamRoleApiGatewayCloudwatchLogRole
+        - Arn
+    DependsOn:
+      - IamRoleApiGatewayCloudwatchLogRole
+  ApiGatewayStageDev:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      StageName: dev
+      Description: dev stage of aws-apig-cache
+      RestApiId:
+        Ref: ApiGatewayRestApi
+      DeploymentId:
+        Ref: ApiGatewayDeployment
+      Variables: {}
+      CacheClusterEnabled: true
+      CacheClusterSize: '0.5'
+      MethodSettings:
+      - HttpMethod: GET
+        ResourcePath: "/"
+        CachingEnabled: true
+        CacheTtlInSeconds: 15
+        DataTraceEnabled: true
+        MetricsEnabled: false
+Outputs:
+  RestApiId:
+    Description: The ID of the REST API
+    Value:
+      Ref: ApiGatewayRestApi
+  ServiceEndpoint:
+    Description: URL of the API
+    Value:
+      Fn::Join:
+      - ''
+      - - https://
+        - Ref: ApiGatewayRestApi
+        - ".execute-api.us-east-1."
+        - Ref: AWS::URLSuffix
+        - "/dev"
