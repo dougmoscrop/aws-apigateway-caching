@@ -13,7 +13,7 @@ aws cloudformation deploy --template-file=cloudformation-template.yml --stack-na
 2. Export stack outputs to variables:
 
 ```bash
-export API_ID=$(aws cloudformation --region us-east-1 describe-stacks --stack-name apig-cache-test --query 'Stacks[0].Outputs[?OutputKey==`RestApiId`].OutputValue' --output text) API_ENDPOINT=$(aws cloudformation --region us-east-1 describe-stacks --stack-name apig-test --query 'Stacks[0].Outputs[?OutputKey==`ServiceEndpoint`].OutputValue' --output text)
+export API_ID=$(aws cloudformation --region us-east-1 describe-stacks --stack-name apig-cache-test --query 'Stacks[0].Outputs[?OutputKey==`RestApiId`].OutputValue' --output text) API_ENDPOINT=$(aws cloudformation --region us-east-1 describe-stacks --stack-name apig-cache-test --query 'Stacks[0].Outputs[?OutputKey==`ServiceEndpoint`].OutputValue' --output text)
 ```
 
 3. Check the stage settings:
