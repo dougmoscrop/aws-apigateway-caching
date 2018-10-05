@@ -1,3 +1,5 @@
+# ❤️ This is now fixed! Thanks AWS!
+
 ## Summary
 
 It appears that API Gateway does not respect the `requireAuthorizationForCacheControl` setting when overriding method settings.
